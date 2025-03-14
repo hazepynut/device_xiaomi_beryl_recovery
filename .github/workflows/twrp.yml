@@ -1,0 +1,90 @@
+name: Build TWRP Recovery
+
+on:
+  workflow_dispatch:
+    env:
+      MANIFEST_BRANCH: '12.1'
+      DEVICE_NAME: 'beryl'
+      DEVICE_PATH: 'device/xiaomi/beryl'
+      DT_REPO: 'https://github.com/hazepynut/device_xiaomi_beryl_recovery'
+      DT_BRANCH: 'fox_12.1'
+      BUILD_TARGET: 'vendorboot'
+      TZ: 'Asia/Makassar'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+          
+      - name: Cleanup
+        uses: rokibhasansagar/slimhub_actions@main
+
+      - name: Prepare the environment
+        run: |
+          export MAN_DISABLE=true
+          sudo apt update
+          sudo apt upgrade -y
+          sudo apt-get install rsync
+        
+      - name: Install repo
+        run: |
+          mkdir ~/bin
+          curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
+          chmod a+x ~/bin/repo
+          sudo ln -sf ~/bin/repo /usr/bin/repo
+
+      - name: Setup git config
+        run: |
+          git config --global user.name "${{ github.actor }}"
+          git config --global user.email "${{ github.actor }}@users.build"
+
+      - name: Initialize repo
+        run: |
+          mkdir workspace
+          cd workspace
+          repo init --depth=1 -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b twrp-${{ env.MANIFEST_BRANCH }}
+          
+      - name: Sync recovery manifest
+        run: |
+          cd workspace
+          repo sync -j$(nproc --all) --force-sync
+
+      - name: Clone device tree
+        run: |
+          cd workspace
+          git clone --depth=1 ${{ env.DT_REPO }} -b ${{ env.DT_BRANCH }} ${{ env.DEVICE_PATH }}
+        
+      - name: Set swap for fast build
+        uses: pierotofy/set-swap-space@master
+        with:
+          swap-size-gb: 15
+        
+      - name: Build image
+        run: |
+          cd workspace
+          source build/envsetup.sh
+          export ALLOW_MISSING_DEPENDENCIES=true
+          lunch twrp_${{ env.DEVICE_NAME }}-eng && make ${{ env.BUILD_TARGET }}image -j$(nproc --all)
+
+        - name: Set build date
+          run: |
+            echo "build_date=$(TZ=${{ env.TZ }} date +"%Y%m%d-%H%M")" >> $GITHUB_ENV
+            
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: | 
+            workspace/out/target/product/${{ env.DEVICE_NAME }}/*.zip
+            workspace/out/target/product/${{ env.DEVICE_NAME }}/*.img
+          name: twrp-${{ env.DEVICE_NAME }}-${{ env.build_date }}
+          tag_name: ${{ github.run_id }}
+          body: |
+            ## TWRP Recovery - Unofficial
+            Device: ${{ env.DEVICE_NAME }}
+            Build Date: ${{ env.build_date }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+
