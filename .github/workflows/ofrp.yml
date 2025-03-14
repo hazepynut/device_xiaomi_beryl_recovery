@@ -1,57 +1,61 @@
 name: Build OrangeFox Recovery
-
 on:
   workflow_dispatch:
     env:
-      MANIFEST_BRANCH: '12.1'
-      DEVICE_NAME: 'beryl'
-      DEVICE_PATH: 'device/xiaomi/beryl'
-      DT_REPO: 'https://github.com/hazepynut/device_xiaomi_beryl_recovery'
-      DT_BRANCH: 'fox_12.1'
-      BUILD_TARGET: 'vendorboot'
-      TZ: 'Asia/Makassar'
-
+      MANIFEST_BRANCH: "12.1"
+      DEVICE_NAME: beryl
+      DEVICE_PATH: device/xiaomi/beryl
+      DT_REPO: https://github.com/hazepynut/device_xiaomi_beryl_recovery
+      DT_BRANCH: fox_12.1
+      BUILD_TARGET: vendorboot
+      TZ: Asia/Makassar
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-          
       - name: Cleanup
         uses: rokibhasansagar/slimhub_actions@main
-
       - name: Prepare the environment
-        run: |
+        run: >
           mkdir -p workspace
+
           cd workspace
+
           export MAN_DISABLE=true
+
           sudo apt update
+
           sudo apt install aria2 -y
+
           git clone --depth 1 https://gitlab.com/OrangeFox/misc/scripts -b master scripts
+
           cd scripts
+
           sudo bash setup/android_build_env.sh
-
       - name: Sync recovery manifest
-        run: |
+        run: >
           cd workspace
+
           git config --global user.name "${{ github.actor }}"
+
           git config --global user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+
           git clone --depth 1 https://gitlab.com/OrangeFox/sync.git -b master sync
+
           cd sync
-          ./orangefox_sync.sh --branch ${{ env.MANIFEST_BRANCH }} --path $(realpath ..)
 
+          ./orangefox_sync.sh --branch ${{ env.MANIFEST_BRANCH }} --path ../
       - name: Clone device tree
-        run: |
+        run: >
           cd workspace
-          git clone --depth=1 ${{ env.DT_REPO }} -b ${{ env.DT_BRANCH }} ${{ env.DEVICE_PATH }}
 
+          git clone --depth=1 ${{ env.DT_REPO }} -b ${{ env.DT_BRANCH }} ${{ env.DEVICE_PATH }}
       - name: Set swap for fast build
         uses: pierotofy/set-swap-space@master
         with:
           swap-size-gb: 15
-        
       - name: Build image
         run: |
           cd workspace
@@ -59,15 +63,14 @@ jobs:
           export ALLOW_MISSING_DEPENDENCIES=true
           lunch twrp_${{ env.DEVICE_NAME }}-eng
           make ${{ env.BUILD_TARGET }}image -j$(nproc --all)
-
       - name: Set build date
-        run: |
+        run: >+
           echo "build_date=$(TZ=${{ env.TZ }} date +"%Y%m%d-%H%M")" >> $GITHUB_ENV
             
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         with:
-          files: | 
+          files: |
             workspace/out/target/product/${{ env.DEVICE_NAME }}/*.zip
             workspace/out/target/product/${{ env.DEVICE_NAME }}/*.img
           name: OFRP-${{ env.DEVICE_NAME }}-${{ env.build_date }}
@@ -78,3 +81,4 @@ jobs:
             Build Date: ${{ env.build_date }}
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+
